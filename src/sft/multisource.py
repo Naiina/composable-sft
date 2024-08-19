@@ -2,11 +2,14 @@ import json
 import logging
 import math
 import random
+import pandas as pd
 
 from typing import Dict, Optional
 
 import numpy as np
 import torch
+
+
 
 import datasets
 from torch.utils.data import (
@@ -15,8 +18,9 @@ from torch.utils.data import (
     DataLoader,
     Sampler,
 )
+from datasets import Dataset, DatasetDict
 
-from .sft import SFT
+from sft import SFT
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -208,8 +212,8 @@ def load_single_dataset(
         s: dataset_json.get(f'{s}_split', s)
         for s in ['train', 'validation', 'test']
     }
-
     load_kwargs = dataset_json.get('load_kwargs', {})
+    
 
     data_files = {}
     if 'train_file' in dataset_json:
@@ -218,19 +222,21 @@ def load_single_dataset(
         data_files['validation'] = dataset_json['validation_file']
     if 'test_file' in dataset_json:
         data_files['test'] = dataset_json['test_file']
-    
+    #cluster = training_args.cluster
+    """
     if 'name' in dataset_json:
         kwargs = {}
         if 'config_name' in dataset_json:
             load_kwargs['name'] = dataset_json['config_name']
         if data_files:
             load_kwargs['data_files'] = data_files
-
+        print(load_kwargs)
         raw_datasets = datasets.load_dataset(
             dataset_json['name'],
             cache_dir=cache_dir,
             **load_kwargs,
         )
+    
     else:
         if 'file_type' in dataset_json:
             file_type = dataset_json['file_type']
@@ -245,7 +251,29 @@ def load_single_dataset(
             data_files=data_files,
             cache_dir=cache_dir,
             **load_kwargs
-        )
+        )"""
+    print(dataset_json["name"])
+    #exit()
+    if True:
+        raw_datasets = datasets.load_dataset(dataset_json["name"])
+    else:
+        #xl_sent = ["The cat is black.","the kid plays with a doll."]
+        xl_id = [1,2]
+        xl_tokens = [["The", "cat", "is", "black","."],["the", "kid", "plays", "with", "a", "doll","."]]
+        xl_labels = [[-100,0,-100,-100,-100],[-100,1,-100,-100,-100,1,-100]]
+
+        xd_data={"id":xl_id,"tokens":xl_tokens,"labels":xl_labels}
+        xdf_data = pd.DataFrame.from_dict(xd_data)
+
+        xtest_dataset = Dataset.from_pandas(xdf_data)
+        xtrain_dataset = Dataset.from_pandas(xdf_data)
+        xdev_dataset = Dataset.from_pandas(xdf_data)
+        raw_datasets = DatasetDict({
+                'train': xtrain_dataset,
+                'test': xtest_dataset,
+                'valid': xdev_dataset
+                })
+
 
     canonical_datasets = {}
     for canonical_split_name, names_in_dataset in split_map.items():

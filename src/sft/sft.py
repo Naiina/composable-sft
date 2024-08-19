@@ -4,7 +4,7 @@ import os
 import numpy as np
 import torch
 
-from .hf_utils import pull_from_hf_model_hub
+from hf_utils import pull_from_hf_model_hub
 
 logger = logging.getLogger(__name__)
 

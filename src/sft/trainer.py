@@ -9,9 +9,9 @@ from tqdm import tqdm
 
 from transformers import Trainer, TrainerCallback
 
-from .sft import SFT
-from .sft_args import SftArguments
-from .utils import DataCollatorWithConsistentEvalMasking
+from sft import SFT
+from sft_args import SftArguments
+from utils import DataCollatorWithConsistentEvalMasking
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +218,7 @@ def SparseFineTuner(_Trainer):
                 self.data_collator.train()
             return output
 
-        def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+        def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
             if self.control.should_log:
                 logs: Dict[str, float] = {}
                 tr_loss_scalar = tr_loss.item()

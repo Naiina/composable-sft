@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from .trainer import SparseFineTuner
+from trainer import SparseFineTuner
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,8 @@ def LotteryTicketSparseFineTuner(_Trainer):
                     self.sft_args.full_ft_max_steps_per_iteration,
                     self.sft_args.full_ft_max_epochs_per_iteration,
                 )
+                #print(**kwargs)
+                #exit()
                 super().train(**kwargs)
 
                 self.unfreeze_k_most_changed_params(
