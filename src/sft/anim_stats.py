@@ -10,6 +10,7 @@ from nltk.corpus import wordnet as wn
 import json
 import pandas as pd
 import argparse
+
 #from datasets import load_dataset
 from datasets import Dataset, DatasetDict
 import numpy as np
@@ -29,6 +30,9 @@ parser.add_argument('--lang', type=str)
 args = parser.parse_args()
 lang = args.lang
 
+print("--------------------------------------------------------")
+print(lang)
+
 l_lang = ["bm","bn","bxr","yue","zh","cs","myv","et","fo","de"] #"en","fr","eu","ar"
 #lang = "ar"
 #bm: only test file  
@@ -36,7 +40,9 @@ l_lang = ["bm","bn","bxr","yue","zh","cs","myv","et","fo","de"] #"en","fr","eu",
 #bn '../../ud-treebanks-v2.14/UD_Bengali-BRU/bn_bru-ud-train.conllu'
 #yue: No such file or directory: '../../ud-treebanks-v2.14/UD_Cantonese-HK/yue_hk-ud-train.conllu'
 
-dict_files = {"en":"UD_English-GUM/en_gum-ud-dev.conllu",
+
+
+dict_files = {"en":"UD_English-GUM/en_gum-ud-train.conllu",
               "fr":"UD_French-GSD/fr_gsd-ud-dev.conllu",
               "eu":"UD_Basque-BDT/eu_bdt-ud-train.conllu",
               "ar":"UD_Arabic-NYUAD/ar_nyuad-ud-train.conllu",
@@ -50,17 +56,25 @@ dict_files = {"en":"UD_English-GUM/en_gum-ud-dev.conllu",
               "et":"UD_Estonian-EDT/et_edt-ud-train.conllu",
               "fo":"UD_Faroese-FarPaHC/fo_farpahc-ud-train.conllu",
               "de":"UD_German-HDT/de_hdt-ud-train.conllu",
+              "es": "UD_Spanish-AnCora/es_ancora-ud-train.conllu",
+              "ja": "UD_Japanese-GSD/ja_gsd-ud-train.conllu",
+              "ko": "UD_Korean-Kaist/ko_kaist-ud-train.conllu"
               }
 model_name_or_path = "models/animacy/en/xlwsdCorpus/checkpoint-2000"
 tokenizer_name_or_path = "bert-base-multilingual-cased"
 UD_file = "../../ud-treebanks-v2.14/"+dict_files[lang]
 json_file = "UD_data_anim/UD_annot_data_"+lang+".json"
+json_file_obl = "UD_data_anim/UD_annot_data_"+lang+"obl.json"
 json_file_stats = "UD_data_anim/stats_"+lang+".json"
+json_file_stats_obl = "UD_data_anim/stats_"+lang+"obl.json"
 
 
 tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name_or_path
+            tokenizer_name_or_path,
+            padding=True,
+            truncation=True
         )
+"""
 model = AutoModelForTokenClassification.from_pretrained(model_name_or_path)
 
 lang_sft = SFT('cambridgeltl/mbert-lang-sft-'+lang+'-small')
@@ -69,8 +83,10 @@ lang_sft.apply(model, with_abs=False)
 
 pipe = Text2TextGenerationPipeline(
     model = AutoModelForSeq2SeqLM.from_pretrained("jpelhaw/t5-word-sense-disambiguation"),
-    tokenizer = AutoTokenizer.from_pretrained("jpelhaw/t5-word-sense-disambiguation")
-)
+    tokenizer = AutoTokenizer.from_pretrained("jpelhaw/t5-word-sense-disambiguation", 
+            padding=True,
+            truncation=True)
+)"""
 
 def tokenize_and_align(l,word_ids):        
         previous_word_idx = None
@@ -179,7 +195,6 @@ def get_in_context_supersense(word,context,pipe):
         #print(l_def_and_supersenses,output)
     #print("no match")
     #if word == "adult":
-    #    exit()
     return -100
 
 def wsd(sentence,tokens,pos):
@@ -204,6 +219,8 @@ def convert_mat_format(lab):
     return anim_tags,targ_idx
 
 def annotate_UD_file(UD_file,json_file,max_len=-1,push_to_hub = False,hub_name = None,lang = "en"):
+    if lang == "ar":
+        max_len = 15500
     data_UD = open(UD_file,"r", encoding="utf-8")
     dd_data_UD = parse(data_UD.read())
     idx = 0
@@ -273,6 +290,206 @@ def annotate_UD_file(UD_file,json_file,max_len=-1,push_to_hub = False,hub_name =
                 'train': dataset})
         data.push_to_hub(hub_name)
 
+def annotate_UD_file_obl(UD_file,json_file,max_len=-1,push_to_hub = False,hub_name = None,lang = "en"):
+    if lang == "ar":
+        max_len = 15500
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    dd_data_UD = parse(data_UD.read())
+    idx = 0
+    ll_gram = []
+    f = open(json_file)
+    data = json.load(f)
+    
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+        idx +=1
+        if max_len >0:
+            if idx >max_len:
+                break
+        
+        text = elem.metadata['text']
+        
+        l = list(elem)
+        l_gram = []
+        for d_word in l:
+            gram = -100
+            if "nsubj" in d_word.values():
+                gram = 0
+            if "obj" in d_word.values():
+                gram = 1
+            if "obl" in d_word.values():
+                gram = 2
+            l_gram.append(gram)
+        ll_gram.append(l_gram)
+
+    data["gram"] = ll_gram
+   
+    outfile = json_file[:-5]+"obl.json"
+    print(outfile)
+    with open(outfile, 'w') as json_file:
+        json.dump(data, json_file)
+
+    if push_to_hub or lang=="de":
+        df_data = pd.DataFrame.from_dict(data)
+        dataset = Dataset.from_pandas(df_data)
+        data = DatasetDict({
+                'train': dataset})
+        data.push_to_hub(hub_name)
+
+class Word:
+    #the voice is only set for subjects
+    def __init__(self, word,head, gram, id,sent_id,d_data,sent_len,voice=None):
+        self.word = word
+        self.head = head
+        self.gram = gram
+        self.sent_id = sent_id
+        self.sent_len = sent_len
+        if type(id) == tuple: 
+            self.pos_in_sent = id[0]-1
+        else:
+            self.pos_in_sent = id-1
+        self.pos_aligned = -1
+        self.animacy = None
+        if gram != "verb":
+            tok,pred_lab = self.get_UD_info(d_data)
+            self.set_animacy(tok,pred_lab)
+        if gram == "subj":
+            self.voice = voice
+
+    def get_UD_info(self,d_data):
+        sent_id = self.sent_id
+        tok = d_data["tokens"][sent_id]
+        pred_lab = d_data["labels_pred"][sent_id]
+        return tok,pred_lab
+
+
+    def set_animacy(self,tok,pred_lab):
+        d_id_2_lab = {2:"N",1:"H",0:"A"}
+        #tok,pred_lab = self.get_UD_info(d_data)
+        tokenized_inputs = tokenizer(tok,is_split_into_words=True)   
+        word_ids = tokenized_inputs.word_ids()
+        #print(tok,word_ids)
+        pos_al = word_ids.index(self.pos_in_sent)
+        self.pos_aligned = pos_al
+        self.animacy = d_id_2_lab[pred_lab[pos_al]]
+    def __str__(self):
+        return "word:"+str(self.word)+" head:"+str(self.head)+" anim:"+str(self.animacy)+" position_in_sent:"+str(self.pos_in_sent)+" aligned_pos:"+str(self.pos_aligned)+" sent_id:"+str(self.sent_id)
+
+     
+
+
+def subj_acitve_passive(UD_file,json_file,task,max_len=-1,lang = "en"):
+    f = open(json_file)
+    d_data = json.load(f)
+    if lang == "ar":
+        max_len = 15500
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    dd_data_UD = parse(data_UD.read())
+    idxx = 0
+    d_anim_passif = {"N":0,"A":0,"H":0}
+    d_anim_actif = {"N":0,"A":0,"H":0}
+    d_anim_passif_no_obj = {"N":0,"A":0,"H":0}
+    d_anim_actif_no_obj = {"N":0,"A":0,"H":0}
+    d_sent_len_subj = {"N":[],"A":[],"H":[]}
+    d_sent_len = {"N":[],"A":[],"H":[]}
+    d_rel_pos = {"N":[],"A":[],"H":[]}
+    f = open(json_file)
+    data = json.load(f)
+    
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+        idxx +=1
+        if max_len >0:
+            if idxx >max_len:
+                break
+        
+        text = elem.metadata['text']
+        sent_len = len(text.split())
+        
+        l = list(elem)
+        l_subj = []
+        l_obj = []
+        l_obl = []
+        l_verb = []
+        for d_word in l:
+            head = d_word["head"]
+            idx = d_word["id"]
+            word = d_word["form"]
+            if "VERB" == d_word["upos"]:
+                V = Word(word,head,"verb",idx,i,d_data,sent_len)
+                l_verb.append(V)
+
+            if "NOUN" == d_word["upos"]:
+                voice = None
+                if "nsubj:pass" in d_word.values():
+                    voice = "passif"
+                if "nsubj" in d_word.values():
+                    voice = "actif"
+                if voice != None:
+                    S = Word(word,head,"subject",idx,i,d_data,sent_len,voice)
+                    l_subj.append(S)
+                if "obj" in d_word.values():
+                    O = Word(word,head,"object",idx,i,d_data,sent_len)
+                    l_obj.append(O)
+                if "obl" in d_word.values():
+                    Ob = Word(word,head,"oblique",idx,i,d_data,sent_len)
+                    l_obl.append(Ob)
+
+        if task == "suj_act_pas":
+            for subj in l_subj:
+                if subj.voice == "passif":
+                    d_anim_passif[subj.animacy]+=1
+                if subj.voice == "actif":
+                    d_anim_actif[subj.animacy]+=1
+        if task == "rel_pos_nouns":
+            for V in l_verb:
+                l_dep = find_verb_dep(head,l_subj,l_obj,l_obl)
+        if task == "avg_sent_len":
+            for w in l_subj:
+                d_sent_len_subj[w.animacy].append(w.sent_len)
+                d_sent_len[w.animacy].append(w.sent_len)
+            for w in l_obj+l_obl:
+                d_sent_len[w.animacy].append(w.sent_len)
+        if task == "rel_pos":
+            for w in l_subj+l_obj+l_obl:
+                d_rel_pos[w.animacy].append((w.pos_in_sent+1)/w.sent_len)
+
+    if task == "suj_act_pas": 
+        print(d_anim_actif,d_anim_passif,d_anim_actif_no_obj,d_anim_passif_no_obj)
+    if task == "avg_sent_len":
+        print("subject")
+        for key,val in d_sent_len_subj.items():
+            print(key,np.mean(val))
+        print("all")
+        for key,val in d_sent_len.items():
+            print(key,np.mean(val))
+    if task == "rel_pos":
+        for key,val in d_rel_pos.items():
+            print(key,np.mean(val)*100)
+           
+
+
+def get_voice(lang,d_word):
+    voice = None
+    if lang == "fr":
+        if d_word["feats"] != None:
+            if "Pass" in d_word["feats"].values():
+                if any(item in d_word.values() for item in {"root","ccomp","relcl"}):
+                    voice = "passif"
+                else:
+                    voice = None
+            else:
+                voice = "actif"
+            
+    return voice
+
+def find_verb_dep(verb,l_subj,l_obj,l_obl):
+    l_dep = []
+    for elem in l_subj+l_obj+l_obl:
+        if elem.head == verb.head:
+            l_dep.append(elem)
+    return l_dep
+
+
+
 
 def compute_stats(json_file):
     f = open(json_file)
@@ -280,8 +497,9 @@ def compute_stats(json_file):
     d_idx_to_lab = {2:"N",1:"H",0:"A"}
     d_anim_subj = {"N":0,"A":0, "H":0}
     d_anim_obj = {"N":0,"A":0, "H":0}
+    d_anim_obl = {"N":0,"A":0, "H":0}
     d_anim_all = {"N":0,"A":0, "H":0}
-    d_pos = {"N_pos":[],"A_pos":[],"H_pos":[],"all_pos":[],"subj_pos":[],"obj_pos":[]}
+    d_pos = {"N_pos":[],"A_pos":[],"H_pos":[],"all_pos":[],"subj_pos":[],"obj_pos":[],"obl_pos":[]}
     tokenized_inputs = tokenizer(data["tokens"],is_split_into_words=True)     
         
     for i in range(len(data["labels_pred"])):
@@ -305,6 +523,10 @@ def compute_stats(json_file):
                 if aligned_gram[k][0] == 1: #is an obj
                     d_anim_obj[lab]+=1
                     d_pos["obj_pos"].append(elem[1])
+                if aligned_gram[k][0] == 2: #is an obl
+                    d_anim_obl[lab]+=1
+                    d_pos["obl_pos"].append(elem[1])
+                
 
     d_pos_avg = {}
     for k in d_pos.keys():
@@ -312,19 +534,33 @@ def compute_stats(json_file):
             d_pos_avg[k] = np.mean(d_pos[k]) 
         else:
             d_pos_avg[k] = "empty"
-    return d_anim_subj,d_anim_obj, d_anim_all, d_pos, d_pos_avg
+    return d_anim_subj,d_anim_obj,d_anim_obl, d_anim_all, d_pos, d_pos_avg
 
 
-annotate_UD_file(UD_file,json_file,-1,False,"Naiina/UD_"+lang+"_anim_pred",lang)
-d_anim_subj,d_anim_obj, d_anim_all, d_pos, d_pos_avg = compute_stats(json_file)
-
+#annotate_UD_file_passif(UD_file,json_file,-1,False,"Naiina/UD_"+lang+"_anim_pred",lang)
 
 
 
-d_stats = {"d_anim_subj":d_anim_subj,"d_anim_obj":d_anim_obj, "d_anim_all":d_anim_all,"d_pos": d_pos, "d_pos_avg":d_pos_avg}
+def pop(N,A,H):
+    a = A+H+N
+    
+    print(N/a,A/a,H/a)
 
-with open(json_file_stats, 'w') as json_file:
-    json.dump(d_stats, json_file)       
+
+subj_acitve_passive(UD_file,json_file,"rel_pos",max_len=-1,lang = "en")
+
+
+#d_anim_subj,d_anim_obj,d_anim_obl, d_anim_all, d_pos, d_pos_avg = compute_stats(json_file_obl)
+
+
+
+
+#d_stats = {"d_anim_subj":d_anim_subj,"d_anim_obj":d_anim_obj,"d_anim_obl":d_anim_obl, "d_anim_all":d_anim_all,"d_pos": d_pos, "d_pos_avg":d_pos_avg}
+
+#with open(json_file_stats_obl, 'w') as json_file:
+#    json.dump(d_stats, json_file)      
+
+#annotate_UD_file_obl(UD_file,json_file,-1,False,"Naiina/UD_"+lang+"_anim_pred",lang) 
 
 
         
