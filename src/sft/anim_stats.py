@@ -815,7 +815,7 @@ def relative_order_MI(UD_file,max_len,Gram,direct_arg_only):
             p_a = animacy_counts[animacy] / total_count
             p_o = order_counts[num_args][order] / class_total
 
-            mi += p_a_o * m.log(p_a_o / (p_a * p_o), 2)
+            mi += p_a_o * (m.log(p_a_o,2) -m.log( p_a,2) -m.log( p_o, 2))
         
         # Weight by the frequency of this class
         weight = class_counts[num_args] / total_count
@@ -1003,9 +1003,8 @@ def number_and_animacy_MI(UD_file,max_len):
     d_count = {"Anim":d_anim,"Nb":d_nb,"Joint":d_joint,"Total":0}
 
     for i,elem in enumerate(tqdm(dd_data_UD)):
-        idxx +=1
         if max_len >0:
-            if idxx > max_len:
+            if i > max_len:
                 break
         
         text = elem.metadata['text']
@@ -1017,7 +1016,7 @@ def number_and_animacy_MI(UD_file,max_len):
                 
             if "NOUN" == d_word["upos"]:
                 anim = d_word["misc"]["ANIMACY"]
-                if type(d_word["feats"]) == dict and "Number" in d_word["feats"].keys():
+                if type(d_word["feats"]) is dict and "Number" in d_word["feats"]: #print ex
                     nb = d_word["feats"]["Number"]
                     if nb in ["Sing","Plur"]:
                         d_count["Joint"][(anim,nb)]+=1
@@ -1026,7 +1025,9 @@ def number_and_animacy_MI(UD_file,max_len):
                         d_count["Total"]+=1
 
     #np_count = np.array([list(d_count[k].values()) for k in d_count.keys()])
-
+    #print(d_count)
+    #for k,v in d_count["Joint"].items():
+    #    print(k,v/d_count["Total"])
     return d_count#,np_count
 
 def compute_MI(UD_file,feat,max_len):
@@ -1043,8 +1044,8 @@ def compute_MI(UD_file,feat,max_len):
         p_a_d = joint_count / total_count
         p_a = d_count["Anim"][animacy] / total_count
         p_d = d_count[feat][dependency] / total_count
-        mutual_information += p_a_d * m.log(p_a_d / (p_a * p_d), 2)
-
+        mutual_information += p_a_d *( m.log(p_a_d,2) - m.log (p_a,2) -m.log(p_d,2))
+    print(mutual_information)
     return mutual_information
 
 
@@ -1614,10 +1615,10 @@ def compute_k2():
             
 #plot_proportion_num()
 
-UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
+#UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
 UD_file = "UD_with_anim_annot/en_gum-ud-train.conllu"
-UD_file = "UD_with_anim_annot/zh_gsd-ud-train.conllu"
-UD_file = "UD_with_anim_annot/es_gsd-ud-train.conllu"
+#UD_file = "UD_with_anim_annot/zh_gsd-ud-train.conllu"
+#UD_file = "UD_with_anim_annot/es_gsd-ud-train.conllu"
 
 #position_in_subtree(UD_file,True,"all",max_len=25,tag = "all",pro = True)
 #plot_pos_subtree(True,"all",-1,"all",True)
@@ -1655,5 +1656,7 @@ UD_file = "UD_with_anim_annot/es_gsd-ud-train.conllu"
 #mi = compute_MI(UD_file,feat,-1)
 #print(feat,mi)
 
-relative_order_MI(UD_file,-1,True,True)
+#relative_order_MI(UD_file,-1,True,True)
+number_and_animacy_MI(UD_file,-1)
 
+#compute_MI(UD_file,"Nb",-1)
