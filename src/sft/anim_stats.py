@@ -17,6 +17,7 @@ from datasets import Dataset, DatasetDict
 import numpy as np
 from sft import SFT
 import math as m
+from termcolor import colored
 #from transformers import (
 #    AutoModelForTokenClassification,
 ##    AutoTokenizer,
@@ -35,8 +36,6 @@ parser.add_argument('--lang', type=str)
 args = parser.parse_args()
 lang = args.lang
 
-print("--------------------------------------------------------")
-print(lang)
 
 l_lang = ["bm","bn","bxr","yue","zh","cs","myv","et","fo","de"] #"en","fr","eu","ar"
 #lang = "ar"
@@ -66,8 +65,7 @@ dict_files = {"en":"UD_English-GUM/en_gum-ud-train.conllu",
               "ko": "UD_Korean-Kaist/ko_kaist-ud-train.conllu",
               
               }
-model_name_or_path = "models/animacy/en/xlwsdCorpus/checkpoint-2000"
-tokenizer_name_or_path = "bert-base-multilingual-cased"
+
 if lang == None:
     UD_file = None
 else:
@@ -76,148 +74,33 @@ else:
     json_file_obl = "UD_data_anim/UD_annot_data_"+lang+"obl.json"
     json_file_stats = "UD_data_anim/stats_"+lang+".json"
     json_file_stats_obl = "UD_data_anim/stats_"+lang+"obl.json"
-print(UD_file)
-
-"""
-tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name_or_path,
-            padding=True,
-            truncation=True
-        )
-
-model = AutoModelForTokenClassification.from_pretrained(model_name_or_path)
-
-lang_sft = SFT('cambridgeltl/mbert-lang-sft-'+lang+'-small')
-lang_sft.apply(model, with_abs=False)
 
 
-pipe = Text2TextGenerationPipeline(
-    model = AutoModelForSeq2SeqLM.from_pretrained("jpelhaw/t5-word-sense-disambiguation"),
-    tokenizer = AutoTokenizer.from_pretrained("jpelhaw/t5-word-sense-disambiguation", 
-            padding=True,
-            truncation=True)
-)"""
-
-def tokenize_and_align(l,word_ids):        
-        previous_word_idx = None
-        l_aligned = []
-        for word_idx in word_ids:
-            if word_idx is None:
-                l_aligned.append((-100,word_idx))
-            elif word_idx != previous_word_idx:
-                l_aligned.append((l[word_idx],word_idx))
-            else:
-                l_aligned.append((-100,word_idx))
-            previous_word_idx = word_idx
-
-        return l_aligned
-
-def predict(elem):
-    inputs = tokenizer(elem, return_tensors="pt",is_split_into_words=True)
-    #word_ids = inputs.word_ids()
-    out = model(**inputs)
-    logits = out.logits
-
-    # Apply softmax to get probabilities (optional, for understanding)
-    #probabilities = F.softmax(logits, dim=-1)
-
-    # Get the predicted class indices
-    predicted_class_indices = torch.argmax(logits, dim=-1)
-
-    # Decode the tokens back to words and map predictions to these words
-    #tokens = tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
-    #d_idx_to_lab = {0:"N",1:"A",2:"H"}
-    predictions = [model.config.id2label[idx.item()] for idx in predicted_class_indices[0]]
-    pred = predicted_class_indices[0]
-    return pred.detach().tolist()
-
-def dummy_model(tokens):
-    n = len(tokens)
-    l_anim_tags = [0]*n
-    l_anim_tags[0] = 0
-    l_anim_tags[-1] = 2
-    return l_anim_tags
-
-def get_supersenses(word):
-    # Get all synsets for the word
-    synsets = wn.synsets(word)
-    l_def_and_supersenses = []
-    # Loop through each synset and print its supersense information
-    for synset in synsets:
-        definition = synset.definition()
-        supersense = synset.lexname()
-        if "noun." in supersense:
-            l_def_and_supersenses.append((definition,supersense))
-    return l_def_and_supersenses
 
 
-def get_label_nn(categ):
-    """
-    H: Human A: animal N: rest (inanimate)
-    """
-    #l_categ = ['noun.animal','noun.person']
-    if categ == 'noun.animal':
-        return 0
-    elif categ == 'noun.person':
-        return 1
-    else: 
-        return 2
 
 
-def get_in_context_supersense(word,context,pipe):
-    
-    l_def_and_supersenses = get_supersenses(word)
-    set_categ = set(dict(l_def_and_supersenses).values())
-    inter = set_categ & {'noun.animal','noun.person'} 
-    if word == "adult":
-        print(inter)
-    if inter == set():
-        return 2
-    elif set_categ=={'noun.animal'}:
-        return 0
-    elif set_categ=={'noun.person'}:
-        return 1
-    else:
-        question = '''question: which description describes the word "'''+word+'''" best in the following context? \n'''
-        all_desript = ''''''
-
-        for desc,s in l_def_and_supersenses:
-            Desc = ''' " %s ", ''' %desc
-            all_desript = all_desript+ Desc
-
-        descriptions='''desription: [  %s ] \n''' %all_desript
-        context = '''context: %s ''' %context
-        input = question+descriptions+context
-
-
-        output = pipe(input)[0]['generated_text']
-
-        for defin,categ in l_def_and_supersenses:
-            if defin[:15]==output[:15]:
-                return get_label_nn(categ)
-
-    return -100
-
-def wsd(sentence,tokens,pos):
-    labels = []
-    for i,elem in enumerate(pos):
-        if elem != -100:
-            word = tokens[i]
-            
-            lab = get_in_context_supersense(word,sentence,pipe)
-            labels.append(lab)
-        else:
-            labels.append(-100)
-    return labels
-
-def find_roots(l,pro,deprel):
+def find_roots(l,pro,deprel,defin = False):
     l_deprel = ("csubj","xcomp","ccomp","acl","parataxis")
     l_waiting = []
     d_roots = {}
+    l_det = {"head":[],"def":[]}
+    defini = None
     #d_roots_v = {}
     #"conj"
 
-    #find the root
+
+    if defin:
+        for d_word in l:
+            if "DET" == d_word["upos"]:
+                if type(d_word["feats"]) is dict:
+                    if "Definite" in d_word["feats"].keys():
+                        defini = d_word["feats"]["Definite"]
+                        head = d_word["head"]
+                        l_det["head"].append(head)
+                        l_det["def"].append(defini)
+
+
     for d_word in l:
         if d_word["head"] == 0:
             id = d_word["id"]
@@ -229,8 +112,14 @@ def find_roots(l,pro,deprel):
             else:
                 anim = None
             g = d_word["deprel"]
-
-            d_roots[d_word["form"]+'0']=([id],[anim],[g],[])
+            if defin:
+                if id in l_det["head"]:
+                    defini = l_det["def"][l_det["head"].index(id)]
+                else:
+                    defini = None
+            
+            voice = get_voice(d_word)
+            d_roots[(d_word["form"]+'0',voice)]=([id],[anim],[g],[],[defini])
             #if d_word["upos"] == "VERB":
             #    d_roots_v[d_word["form"]+'0']=([id],[anim],[g])
         else:
@@ -253,13 +142,18 @@ def find_roots(l,pro,deprel):
                     anim = "P"
                 else:
                     anim = None
-                if deprel:
-
-                    d_roots[d_word["form"]]=([id],[anim],[rel],[])
+                #if deprel:
+                if defin:
+                    if id in l_det["head"]:
+                        defini = l_det["def"][l_det["head"].index(id)]
+                    else:
+                        defini = None
+                voice = get_voice(d_word)
+                d_roots[(d_word["form"],voice)]=([id],[anim],[rel],[],[defini])
                     #if d_word["upos"] == "VERB":
                     #    d_roots_v[d_word["form"]]=([id],[anim],[rel])
-                else:
-                    d_roots[d_word["form"]]=([id],[anim])
+                ##else:
+                    #d_roots[d_word["form"]]=([id],[anim])
                     #if d_word["upos"] == "VERB":
                     #    d_roots_v[d_word["form"]]=([id],[anim])
                 l_waiting.pop(i)
@@ -270,24 +164,48 @@ def find_roots(l,pro,deprel):
         
 
 
-def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False):
+def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = True,iobj=False,obl=False,passive=False):
     l_waiting_idx = []
     l_waiting_anim = []
     l_waiting_head = []
     l_waiting_gram = []
+    l_waiting_def = []
+    l_det = {"head":[],"def":[]}
     # get roots of each subtree
-    d_subtrees,l_tree_roots_idx = find_roots(l,pro,deprel)
-    l_gram = ["obj","nsubj","obl"]
+    d_subtrees,l_tree_roots_idx = find_roots(l,pro,deprel,defin)
 
-    
+    l_gram = ["obj","nsubj"]
+    if iobj:
+        l_gram.append("iobj")
+    if obl:
+        l_gram.append("obl")
+    #if passive:
+    l_gram_p = ["obl:agent","nsubj:pass"]
+
+    if defin:
+        for d_word in l:
+            if "DET" == d_word["upos"]:
+                if type(d_word["feats"]) is dict:
+                    if "Definite" in d_word["feats"].keys():
+                        defini = d_word["feats"]["Definite"]
+                        head = d_word["head"]
+                        l_det["head"].append(head)
+                        l_det["def"].append(defini)
+
     for d_word in l:
         idx = d_word["id"]
         head = d_word["head"]
         upos = d_word["upos"]
-        gram = d_word["deprel"].split(":")[0]
+        gram = d_word["deprel"]#.split(":")[0]
+        if defin:
+            if idx in l_det["head"]:
+                defini = l_det["def"][l_det["head"].index(idx)]
+            else:
+                defini = None
         if upos != "PUNCT":
             if "NOUN" == upos:
                 anim = d_word["misc"]["ANIMACY"]
+           
             elif pro and "PRON" == upos and type(d_word["feats"]) == dict and "Person" in d_word["feats"] and d_word["feats"]["Person"] in ["1","2"]:
                 anim = "P"
             else:
@@ -297,6 +215,8 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False):
                 l_waiting_anim.append(anim)
                 l_waiting_head.append(head)
                 l_waiting_gram.append(gram)
+                if defin:
+                    l_waiting_def.append(defini)
     ii = 0
     max_it = len(l_waiting_idx)
     #print("anim",l_waiting_anim )
@@ -306,24 +226,32 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False):
         a = l_waiting_anim.pop(0)
         h = l_waiting_head.pop(0)
         g = l_waiting_gram.pop(0)
+        if defin:
+            d = l_waiting_def.pop(0)
         
         found = False
         
         # look up if already in a subtree
-        for k,v in d_subtrees.items():
+        #print(d_subtrees)
+        for (verb,voice),sub_tree in d_subtrees.items():
             
             #print(str(i)+" look up "+str(h)+" in ",k,v)
-            if h in v[0]: 
+            if h in sub_tree[0]: 
                 
-                d_subtrees[k][0].append(i)
-                d_subtrees[k][1].append(a)
-                d_subtrees[k][2].append(g)
-                
+                sub_tree[0].append(i)
+                sub_tree[1].append(a)
+                sub_tree[2].append(g)
+                if defin:
+                    sub_tree[4].append(d)
+
                 if direct_arg_only:
-                    if g in l_gram:
-                        d_subtrees[k][3].append(d_subtrees[k][0].index(i))  
-                else:
-                    d_subtrees[k][2].append(g)
+                    #print(voice)
+                    if voice == "passif":
+                        if g in l_gram_p and h == sub_tree[0][0]:
+                            sub_tree[3].append(sub_tree[0].index(i))  
+                    if voice == "actif":
+                        if g in l_gram and h == sub_tree[0][0]:
+                            sub_tree[3].append(sub_tree[0].index(i)) 
 
                 found = True
                 ii = 0
@@ -336,6 +264,8 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False):
             l_waiting_anim.append(a)
             l_waiting_head.append(h)
             l_waiting_gram.append(g)
+            if defin:
+                l_waiting_def.append(d)
         #print(l_waiting_idx)
         
         
@@ -344,124 +274,6 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False):
     return d_subtrees
             
 
-
-
-def annotate_UD_file(UD_file,json_file,max_len=-1,push_to_hub = False,hub_name = None,lang = "en"):
-    if lang == "ar":
-        max_len = 15500
-    data_UD = open(UD_file,"r", encoding="utf-8")
-    dd_data_UD = parse(data_UD.read())
-    idx = 0
-        
-    l_sent = []
-    ll_tokens = []
-    ll_pos = []
-    ll_gram = []
-    ll_anim_lab_pred = []
-    ll_anim_lab_wsd = []
-    l_sent_len = []
-    
-    for elem in tqdm(dd_data_UD):
-        idx +=1
-        if max_len >0:
-            if idx >max_len:
-                break
-        
-        text = elem.metadata['text']
-        l_sent.append(text)
-        
-        l = list(elem)
-        l_pos = []
-        l_gram = []
-        l_tokens = []
-        l_sent_len.append(len(l))
-        for d_word in l:
-            word = d_word["form"]
-            l_tokens.append(word)
-            pos = -100
-            gram = -100
-            if "NOUN" in d_word.values():
-                pos = 0 
-            if "PROPN" in d_word.values():
-                pos = 1
-            if "PRON" in d_word.values():
-                pos = 2
-            if "nsubj" in d_word.values():
-                gram = 0
-            if "obj" in d_word.values():
-                gram = 1
-            l_pos.append(pos)
-            l_gram.append(gram)
-        ll_tokens.append(l_tokens)
-        ll_pos.append(l_pos)
-        ll_gram.append(l_gram)
-        #l_anim_raw = dummy_model(l_tokens)
-        l_anim_lab_pred = predict(l_tokens)
-        if lang == "en":
-            l_anim_lab_wsd = wsd(text,l_tokens,l_pos)
-            ll_anim_lab_wsd.append(l_anim_lab_wsd)
-        #l_anim_lab = [l_anim_raw[k] if l_pos[k]!=-100 else -100 for k in range(len(l_pos))]
-        ll_anim_lab_pred.append(l_anim_lab_pred)
-    if lang == "en":
-        d_data = {"sent":l_sent,"tokens":ll_tokens,"labels_pred":ll_anim_lab_pred,"labels_wsd":ll_anim_lab_wsd, "pos":ll_pos,"gram":ll_gram,"l_sent_len":l_sent_len}
-    else:
-        d_data = {"sent":l_sent,"tokens":ll_tokens,"labels_pred":ll_anim_lab_pred,"pos":ll_pos,"gram":ll_gram,"l_sent_len":l_sent_len}
-   
-
-    with open(json_file, 'w') as json_file:
-        json.dump(d_data, json_file)
-
-    if push_to_hub or lang=="de":
-        df_data = pd.DataFrame.from_dict(d_data)
-        dataset = Dataset.from_pandas(df_data)
-        data = DatasetDict({
-                'train': dataset})
-        data.push_to_hub(hub_name)
-
-def annotate_UD_file_obl(UD_file,json_file,max_len=-1,push_to_hub = False,hub_name = None,lang = "en"):
-    if lang == "ar":
-        max_len = 15500
-    data_UD = open(UD_file,"r", encoding="utf-8")
-    dd_data_UD = parse(data_UD.read())
-    idx = 0
-    ll_gram = []
-    f = open(json_file)
-    data = json.load(f)
-    
-    for i,elem in enumerate(tqdm(dd_data_UD)):
-        idx +=1
-        if max_len >0:
-            if idx >max_len:
-                break
-        
-        text = elem.metadata['text']
-        
-        l = list(elem)
-        l_gram = []
-        for d_word in l:
-            gram = -100
-            if "nsubj" in d_word.values():
-                gram = 0
-            if "obj" in d_word.values():
-                gram = 1
-            if "obl" in d_word.values():
-                gram = 2
-            l_gram.append(gram)
-        ll_gram.append(l_gram)
-
-    data["gram"] = ll_gram
-   
-    outfile = json_file[:-5]+"obl.json"
-    print(outfile)
-    with open(outfile, 'w') as json_file:
-        json.dump(data, json_file)
-
-    if push_to_hub or lang=="de":
-        df_data = pd.DataFrame.from_dict(data)
-        dataset = Dataset.from_pandas(df_data)
-        data = DatasetDict({
-                'train': dataset})
-        data.push_to_hub(hub_name)
 
 class Word:
     #the voice is only set for subjects
@@ -505,267 +317,6 @@ class Word:
      
 
 
-def compute_statistics(UD_file,task,max_len=-1,lang = "en"):
-
-    if lang == "ar":
-        max_len = 15000
-
-    data_UD = open(UD_file,"r", encoding="utf-8")
-    dd_data_UD = parse(data_UD.read())
-
-    idxx = 0
-    d_anim_passif = {"N":0,"A":0,"H":0}
-    d_anim_actif = {"N":0,"A":0,"H":0}
-    d_anim_passif_no_obj = {"N":0,"A":0,"H":0}
-    d_anim_actif_no_obj = {"N":0,"A":0,"H":0}
-    d_sent_len_subj = {"N":[],"A":[],"H":[]}
-    d_sent_len = {"N":[],"A":[],"H":[]}
-    d_rel_pos = {"N":[],"A":[],"H":[]}
-    d_pos = {"N":[],"A":[],"H":[]}
-    d_first_pos_of_v = {"N":0,"A":0,"H":0}
-    d_second_pos_of_v = {"N":0,"A":0,"H":0}
-    d_third_pos_of_v = {"N":0,"A":0,"H":0}
-    d_act_obj = {"N":0,"A":0,"H":0}
-    d_passif_subj = {"N":0,"A":0,"H":0}
-    d_passif_subj_with_obl = {"N":0,"A":0,"H":0}
-    d_passif_subj_no_obl = {"N":0,"A":0,"H":0}
-    d_corr = {"idx":[],"sent_id":[],"text":[],"sent_len":[],"word":[],"head":[],"anim":[],"gram":[],"rel_pos":[],"voice":[],"def":[],"num":[]}
-    nb_subj_act_not_noun = 0
-    nb_subj_pas_not_noun = 0
-    nb_subj = 0
-    nb_obj_noun = 0
-    not_in_head = 0
-
-    for i,elem in enumerate(tqdm(dd_data_UD)):
-        idxx +=1
-        if max_len >0:
-            if idxx >max_len:
-                break
-        
-        
-        text = elem.metadata['text']
-        print(text)
-        sent_len = len(text.split())
-        #print(text.split())
-        
-        l = list(elem)
-        l_subj = []
-        l_obj = []
-        l_obl = []
-        l_verb = []
-        l_det = []
-        l_act_head = []
-        l_pass_obl = []
-        l_head_subj_pass_not_noun = []
-        l_head_subj_act_not_noun = []
-        #print(text)
-        for d_word in l:
-            #d_subtrees = create_subtrees_lists(l)
-            #print(d_subtrees)
-
-            head = d_word["head"]
-            idx = d_word["id"]
-            word = d_word["form"]
-            voice = None
-            gram = None
-            num = None
-            if "DET" == d_word["upos"]:
-                #print(word,d_word["feats"])
-                if "Definite" in d_word["feats"].keys():
-                    defin = d_word["feats"]["Definite"]
-                    det = (head,defin)
-                    l_det.append(det)
-            if "VERB" == d_word["upos"]:
-                V = Word(word,head,"verb",idx,i,sent_len)
-                l_verb.append(V)
-
-                
-            if "NOUN" == d_word["upos"]:
-                anim = d_word["misc"]["ANIMACY"]
-
-                if d_word["feats"]!= None:
-                    if "Number" in d_word["feats"].keys():
-                        num = d_word["feats"]["Number"]
-
-                if "nsubj:pass" in d_word.values():
-                    voice = "passif"
-                    gram = "subj"
-                if "nsubj" in d_word.values():
-                    voice = "actif"
-                    gram = "subj"
-                if voice != None:
-                    W = Word(word,head,"subject",idx,i,sent_len,anim,voice)
-                    l_subj.append(W)
-                if "obj" in d_word["deprel"]:
-                    gram = "obj"
-                    W = Word(word,head,"object",idx,i,sent_len,anim)
-                    l_obj.append(W)
-                    nb_obj_noun += 1
-                if "obl" in d_word["deprel"]:
-                    gram = "obl"
-                    W = Word(word,head,"oblique",idx,i,sent_len,anim)
-                    l_obl.append(W)
-            else:
-                if "nsubj:pass" in d_word.values():
-                    l_head_subj_pass_not_noun.append(head)
-                if "nsubj" in d_word.values():
-                    l_head_subj_act_not_noun.append(head)
-            #print(" word:",word," gram:",gram)
-            if task == "correlation":
-                if gram != None:
-                    d_corr["idx"].append(idx)
-                    d_corr["sent_id"].append(i)
-                    d_corr["sent_len"].append(sent_len)
-                    d_corr["text"].append(text)
-                    d_corr["word"].append(word)
-                    d_corr["head"].append(head)
-                    d_corr["anim"].append(W.animacy)
-                    d_corr["gram"].append(gram)
-                    d_corr["rel_pos"].append(None)
-                    d_corr["voice"].append(voice)
-                    d_corr["num"].append(num)
-                    d_corr["def"].append(None)
-        if task == "correlation":
-            #print("list det",l_det)
-            #print("list sent id",d_corr["sent_id"])
-            try:
-                start = d_corr["sent_id"].index(i)
-                #print("start",start)
-                for i,idx_noun in enumerate(d_corr["idx"][start:]):
-                    #print("word:", d_corr["word"][i+start]," word_id:",d_corr["idx"][i+start])
-                    det = find_det(idx_noun,l_det)
-                    #print("det", det)
-                    if det != None:
-                        d_corr["def"][i+start] = det
-            except ValueError:
-                pass
-        if task == "suj_act_pas":
-            for subj in l_subj:
-                if subj.voice == "passif":
-                    d_anim_passif[subj.animacy]+=1
-                if subj.voice == "actif":
-                    d_anim_actif[subj.animacy]+=1
-        if task == "rel_pos_per_verb":
-            for V in l_verb:
-                l_dep = find_verb_dep(V,l_subj,l_obj,l_obl)
-                #if len(l_dep) == 0:
-                    #print(V.word,text,V.pos_in_sent+1)
-                    #print_l_words(l_obj)
-                if len(l_dep)>0:
-                    d_first_pos_of_v[l_dep[0][1].animacy]+=1
-                if len(l_dep)>1:
-                    d_second_pos_of_v[l_dep[1][1].animacy]+=1
-                if len(l_dep)>2:
-                    d_third_pos_of_v[l_dep[2][1].animacy]+=1
-        if task == "avg_sent_len":
-            for w in l_subj:
-                d_sent_len_subj[w.animacy].append(w.sent_len)
-                d_sent_len[w.animacy].append(w.sent_len)
-            for w in l_obj+l_obl:
-                d_sent_len[w.animacy].append(w.sent_len)
-        if task == "pos":
-            for w in l_subj+l_obj+l_obl:
-                d_rel_pos[w.animacy].append((w.pos_in_sent+1)/w.sent_len)
-                d_pos[w.animacy].append((w.pos_in_sent+1))
-
-        if task == "obj_act_subj_pass":
-            #print(text)
-            #print_l_words(l_subj)
-            l_obl_head = [o.head for o in l_obl]
-            l_subj_head = [s.head for s in l_subj]
-            l_obj_head = [o.head for o in l_obj]
-            nb_subj = nb_subj + len(l_subj)
-            for w in l_subj:
-                if w.voice == "passif":
-                    d_passif_subj[w.animacy]+=1
-                    if w.head in l_obl_head:
-                        d_passif_subj_with_obl[w.animacy]+=1
-                    else:
-                        d_passif_subj_no_obl[w.animacy]+=1
-                else:
-                    l_act_head.append(w.head)
-            for elem in l_obj:
-                if elem.head in l_act_head+l_head_subj_act_not_noun+l_head_subj_pass_not_noun:
-                    d_act_obj[elem.animacy]+=1
-                else: 
-                    not_in_head+=1
-            
-
-
-    if task == "suj_act_pas": 
-        print(d_anim_actif,d_anim_passif,d_anim_actif_no_obj,d_anim_passif_no_obj)
-    if task == "avg_sent_len":
-        print("Average length sentence with the subject being:")
-        for key,val in d_sent_len_subj.items():
-            print(key,round(np.mean(val),2))
-        print("Average length sentence containing:")
-        for key,val in d_sent_len.items():
-            print(key,round(np.mean(val),2))
-    if task == "pos":
-        with open("UD_data_anim/stats_"+lang+"_rel.json", 'w') as json_file:
-            json.dump(d_rel_pos, json_file)
-        print("relative position")
-        for key,val in d_rel_pos.items():
-            print(key,round(np.mean(val)*100,2))
-        print("absolute position")
-        for key,val in d_pos.items():
-            print(key,round(np.mean(val),2))
-    if task == "rel_pos_per_verb":
-        print("first")
-        print(d_first_pos_of_v)
-        prop(d_first_pos_of_v)
-        print("second")
-        print(d_second_pos_of_v)
-        prop(d_second_pos_of_v)
-        print("third")
-        print(d_third_pos_of_v)
-        prop(d_third_pos_of_v)
-    if task == "obj_act_subj_pass":
-        print("passive subjects:",d_passif_subj)
-        prop(d_passif_subj)
-        print("active objects:",d_act_obj)
-        prop(d_act_obj)
-        print("nb_sub not noun:",nb_subj_act_not_noun)
-        #print("nb_sub not noun:",nb_subj_pas_not_noun)
-        #d_passif_subj["H"]=d_passif_subj["H"]+nb_subj_pas_not_noun
-        #d_act_obj["H"]=d_passif_subj["H"]+nb_subj_pas_not_noun
-        #pop(d_passif_subj)
-        print("pass with obl",d_passif_subj_with_obl)
-        prop(d_passif_subj_with_obl)
-        print("pass with obl",d_passif_subj_no_obl)
-        prop(d_passif_subj_no_obl)
-        #print(nb_subj, nb_subj_act_not_noun,nb_subj_pas_not_noun)
-        #print(nb_obj_noun)
-        print("not in head",not_in_head)
-    if task == "correlation":
-        df = pd.DataFrame.from_dict(d_corr)  
-        df.to_csv("UD_data_anim/corr_df_"+lang+".csv") 
-
-
-
-
-def pass_subj_act_obj(UD_file,max_len,Gram):
-    idxx = 0
-    data_UD = open(UD_file,"r", encoding="utf-8")
-    dd_data_UD = parse(data_UD.read())
-
-    d_act_obj = {"N":0,"A":0,"H":0}
-    d_passif_subj = {"N":0,"A":0,"H":0}
-
-
-    for i,elem in enumerate(tqdm(dd_data_UD)):
-        idxx +=1
-        if max_len >0:
-            if idxx >max_len:
-                break
-        
-        
-        text = elem.metadata['text']
-        l = list(elem)
-        print(text)
-
-        d_subtrees = create_subtrees_lists(l,True,Gram)
-        print(l)
 
 def relative_order_MI(UD_file,max_len,Gram,direct_arg_only):
     idxx = 0
@@ -788,7 +339,7 @@ def relative_order_MI(UD_file,max_len,Gram,direct_arg_only):
         l = list(elem)
 
         d_subtrees = create_subtrees_lists(l,True,Gram,direct_arg_only)
-        for l_pos,l_anim,l_gram,l_idx in d_subtrees.values():
+        for l_pos,l_anim,l_gram,l_idx,l_defi in d_subtrees.values():
 
             num_args = len(l_idx)
             class_counts[num_args] += num_args
@@ -880,7 +431,7 @@ def definitness_and_animacy(UD_file,max_len):
         #gather all nouns and det of the sentence l
         for d_word in l:
             if "DET" == d_word["upos"]:
-                if type(d_word["feats"]) == dict:
+                if type(d_word["feats"]) is dict:
                     if "Definite" in d_word["feats"].keys():
                         defin = d_word["feats"]["Definite"]
                         head = d_word["head"]
@@ -1013,7 +564,6 @@ def number_and_animacy_MI(UD_file,max_len):
         #gather all nouns and det of the sentence l
         for d_word in l:
             
-                
             if "NOUN" == d_word["upos"]:
                 anim = d_word["misc"]["ANIMACY"]
                 if type(d_word["feats"]) is dict and "Number" in d_word["feats"]: #print ex
@@ -1046,6 +596,57 @@ def compute_MI(UD_file,feat,max_len):
         p_d = d_count[feat][dependency] / total_count
         mutual_information += p_a_d *( m.log(p_a_d,2) - m.log (p_a,2) -m.log(p_d,2))
     print(mutual_information)
+    return mutual_information
+
+def compute_MI_tests(UD_file,feat,max_len):
+    ent_a = 0
+    ent_n = 0
+    cond_ent_a_n = 0
+    cond_ent_n_a = 0
+    mutual_information = 0
+    j_ent = 0
+
+
+    if feat == "Nb":
+        d_count = number_and_animacy_MI(UD_file,max_len)
+    if feat == "Def":
+        d_count = definitness_and_animacy_MI(UD_file,max_len)
+    
+    total_count = d_count["Total"]
+    #direct MI computation
+    for (animacy, dependency), joint_count in d_count["Joint"].items():
+        p_a_d = joint_count / total_count
+
+        p_a = d_count["Anim"][animacy] / total_count
+        p_d = d_count[feat][dependency] / total_count
+        mutual_information += p_a_d *( m.log(p_a_d,2) - m.log (p_a,2) -m.log(p_d,2))
+    tot = sum(d_count["Anim"].values())
+    #anim entropy
+    for animacy, count in d_count["Anim"].items():
+        p_a = count/tot
+        print("pa",p_a)
+        ent_a -= p_a*m.log(p_a,2)
+    #def entropy
+    for num, count in d_count["Nb"].items():
+        pn = count/tot
+        ent_n -= pn*m.log(pn,2)
+    #conditional entropy: H(nb|anim)
+    for (animacy, num), joint_count in d_count["Joint"].items():
+        p_a_n = joint_count / tot
+        p_a = d_count["Anim"][animacy] / tot
+        cond_ent_n_a -= p_a_n *( m.log(p_a_n,2) - m.log (p_a,2))
+    #conditional entropy: H(anim|nb)
+    for (animacy, num), joint_count in d_count["Joint"].items():
+        p_a_n = joint_count / tot
+        p_n = d_count["Nb"][num] / tot
+        cond_ent_a_n -= p_a_n *( m.log(p_a_n,2) - m.log (p_n,2))
+    #joint entropy
+    for (animacy, num), joint_count in d_count["Joint"].items():
+        p_a_n = joint_count / tot
+        j_ent -= p_a_n *( m.log(p_a_n,2))
+    print("tot",tot)
+    print("anim entr:",ent_a," def ent:",ent_n," condi ent a_n",cond_ent_a_n," condi ent n_a",cond_ent_n_a," joint ent",j_ent)
+    print("MI sub a",ent_a-cond_ent_a_n,"MI sub n",ent_n-cond_ent_n_a ," MI",mutual_information)
     return mutual_information
 
 
@@ -1091,12 +692,14 @@ def filter_diff_anim(l,tag):
         return sev_anim
 
 
-def position_in_subtree(UD_file,rel,which_clauses,max_len=-1,tag = "all",pro = True):
+def position_in_subtree(UD_file,rel,which_clauses,max_len=-1,tag = "all",pro = True, defin = True):
 
     data_UD = open(UD_file,"r", encoding="utf-8")
     dd_data_UD = parse(data_UD.read())
     idxx = 0
-    d_pos = {"N":[],"A":[],"H":[],"P":[]}
+    d_pos_anim = {"N":[],"A":[],"H":[],"P":[]}
+    d_pos_anim_defin = {"Def_N":[],"Def_A":[],"Def_H":[],"Def_P":[],"Ind_N":[],"Ind_A":[],"Ind_H":[],"Ind_P":[]}
+    d_pos_defin = {"Def":[],"Ind":[]}
     for i,elem in enumerate(tqdm(dd_data_UD)):
         idxx +=1
         if max_len >0:
@@ -1107,9 +710,11 @@ def position_in_subtree(UD_file,rel,which_clauses,max_len=-1,tag = "all",pro = T
         #print(text)
         l = list(elem)
 
-        d_subtrees = create_subtrees_lists(l,pro)
-        for k,(l1,l2) in d_subtrees.items():
-
+        d_subtrees = create_subtrees_lists(l,pro,defin)
+        #print(d_subtrees)
+        
+        
+        for k,(li,la,lg,l4,ld) in d_subtrees.items():
             of_interest = False
             if filter_diff_anim(l,tag): # filter on the number of animacy classes
                 if which_clauses == "main" and k[-1] == '0':
@@ -1120,17 +725,35 @@ def position_in_subtree(UD_file,rel,which_clauses,max_len=-1,tag = "all",pro = T
                     of_interest = True
             
             if of_interest:
-                subtree_len = len(l1)
-                zipped = list(zip(l1,l2))
+                subtree_len = len(li)
+                if defin:
+                    zipped = list(zip(li,la,ld))
+                else:
+                    zipped = list(zip(li,la))
                 z_sorted = sorted(zipped, key = lambda x: x[0])
                 #print(z_sorted)
-                for ind, (idx,anim) in enumerate(z_sorted):
-                    if anim != None:
-                        if rel :
-                            d_pos[anim].append(ind/subtree_len)
-                        else:
-                            d_pos[anim].append(ind)
-    return (d_pos)
+                if defin:
+                    for ind, (idx,anim,definintness) in enumerate(z_sorted):
+                        if anim != None:
+                            if rel :
+                                d_pos_anim[anim].append(ind/subtree_len)
+                                if definintness!=None:
+                                    d_pos_defin[definintness].append(ind/subtree_len)
+                                    d_pos_anim_defin[definintness+"_"+anim].append(ind/subtree_len)
+                            else:
+                                d_pos_anim[anim].append(ind)
+                                if definintness!=None:
+                                    d_pos_defin[definintness].append(ind)
+                                    d_pos_anim_defin[definintness+"_"+anim].append(ind)
+                else:
+                    for ind, (idx,anim) in enumerate(z_sorted):
+                        if anim != None:
+                            if rel :
+                                d_pos_anim[anim].append(ind/subtree_len)
+                            else:
+                                d_pos_anim[anim].append(ind)
+    #print(d_pos_anim,d_pos_defin,d_pos_anim_defin)
+    return (d_pos_anim,d_pos_defin,d_pos_anim_defin)
 
 
 def tuple_to_consider_rank(max_len,tag,pro):
@@ -1264,6 +887,68 @@ def rank_in_subtree_H(which_clauses,max_len=-1,tag = "all",pro = True):
 
     return df
 
+def rank_in_subtree_main_arg(UD_file,diff_classes,max_len=-1,tag = "all",pro = False,defin = False,anim_or_gram = "anim",iobj=False,obl=False):
+    
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    dd_data_UD = parse(data_UD.read())
+    d_pos = defaultdict(list)
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+
+        if max_len >0:
+            if i > max_len:
+                break
+    
+        text = elem.metadata['text']
+        #print(text)
+        l = list(elem)
+        d_subtrees = create_subtrees_lists(l,pro,False,True,defin,iobj,obl)
+        #print(d_subtrees)
+        for l_pos,l_anim,l_gram,ldir_arg,ld in d_subtrees.values():
+            num_args = len(ldir_arg)
+            #class_counts[num_args] += num_args
+            #print(l_anim,ldir_arg)
+            l_all = [(l_pos[i],l_anim[i],l_gram[i]) for i in ldir_arg if l_anim[i] !=None ]
+            l_anim_only = [l_anim[i] for i in ldir_arg if l_anim[i] !=None ]
+            nb_classes = len(set(l_anim_only))
+            if (len(l_all)<6 and (iobj or obl)) or len(l_all)==2:
+                if diff_classes:
+                    if nb_classes>1:
+                        #print(text)
+                        l_all.sort()
+                        #nb = len(l_all)
+                        for i,elem in enumerate(l_all):
+                            if anim_or_gram == "anim":
+                                d_pos[elem[1]].append(i)
+                            if anim_or_gram == "gram":
+                                d_pos[elem[2]].append(i)
+                            if anim_or_gram == "both":
+                                if elem[2]=="nsubj":
+                                    g = 0
+                                else:
+                                    g = 1
+                                d_pos[elem[1]].append(g)
+                else:
+                    l_all.sort()
+                    #nb = len(l_all)
+                    print(l_all)
+                    for i,elem in enumerate(l_all):
+                        if anim_or_gram == "anim":
+                            d_pos[elem[1]].append(i)
+                        if anim_or_gram == "gram":
+                            d_pos[elem[2]].append(i)
+                        if anim_or_gram == "both":
+                                if elem[2]=="subj":
+                                    g = 0
+                                else:
+                                    g = 1
+                                d_pos[elem[1]].append(g)
+
+    for k,v in d_pos.items():
+        print(k,np.mean(v))
+    #print(d_pos)
+    return d_pos
+
+
 def rank_in_subtree_entropy(which_clauses,max_len=-1,tag = "all",pro = True):
     tup_to_consider = tuple_to_consider_rank(max_len,tag,pro)
     
@@ -1293,6 +978,40 @@ def rank_in_subtree_entropy(which_clauses,max_len=-1,tag = "all",pro = True):
     df = pd.DataFrame.from_dict(d)
 
     return df
+
+
+def animacy_and_voice(max_len,diff_anim=False,exactly_two=False):
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    dd_data_UD = parse(data_UD.read())
+    d_voice = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+        if max_len >0 and i >max_len:
+            break
+        
+        text = elem.metadata['text']
+        l = list(elem)
+        d_subtrees = create_subtrees_lists(l,True,True,True,passive=True)
+        for (verb,voice),[l_pos,l_anim,l_gram,ldir_arg,ld] in d_subtrees.items():
+            to_add = True
+            l_anim_no_none = [l_anim[elem] for elem in ldir_arg if l_anim[elem]!=None]
+            
+            if exactly_two:
+                to_add = (len(l_anim_no_none)==2)
+            if diff_anim:
+                s = set(l_anim_no_none)
+                to_add = (len(s)>1) #check that if there are two diff animacy degree, we also have exaclty too elements
+            
+            if to_add:
+                for elem in ldir_arg:
+                    anim = l_anim[elem]
+                    if anim != None:
+                        #print((voice,l_anim[elem],l_gram[elem]))
+                        d_voice[voice][l_gram[elem]][l_anim[elem]]+=1
+                #exit()
+
+    print(d_voice)
+    return d_voice
         
 
 def plot_scattered_heatmaps(which_clauses,max_len,tag,pro):
@@ -1448,7 +1167,7 @@ def plot_proportion_def():
     plt.savefig("UD_data_anim/proportion_plot_definitness.png")
     plt.show()
 
-def plot_pos_subtree(rel,which_clauses,size,tag,pro):
+def plot_pos_subtree(rel,which_clauses,size,tag,pro,defin):
     l_lang = []
     l_anim = []
     l_pos = []
@@ -1456,12 +1175,12 @@ def plot_pos_subtree(rel,which_clauses,size,tag,pro):
     for file in files:
 
         UD_file = "UD_with_anim_annot/"+file
-        d_pos = position_in_subtree(UD_file,rel,which_clauses,size,tag,pro)
+        d_pos_anim,d_pos_defin,d_pos_anim_defin = position_in_subtree(UD_file,rel,which_clauses,size,tag,pro,defin)
         #print(d_pos)
         ll_anim = []
-        for k in d_pos.keys():
-            ll_anim = ll_anim + [k]*len(d_pos[k])
-            l_pos = l_pos + d_pos[k]
+        for k in d_pos_anim.keys():
+            ll_anim = ll_anim + [k]*len(d_pos_anim[k])
+            l_pos = l_pos + d_pos_anim[k]
         l_anim = l_anim + ll_anim
         l_lang = l_lang + [file[:2]]*len(ll_anim)
         
@@ -1470,26 +1189,122 @@ def plot_pos_subtree(rel,which_clauses,size,tag,pro):
     d = {"language":l_lang,"position":l_pos,"animacy":l_anim}
     df = pd.DataFrame.from_dict(d)
 
-    #print(df)
+    # Draw a nested boxplot to show bills by day and time
+    sns.set_theme(style="ticks", palette="pastel")
+    sns.boxplot(x="language", y="position",
+                hue="animacy", palette=["m","r", "g","b"],
+                data=df)
+    sns.despine(offset=10, trim=True)
 
-    f, ax = plt.subplots()
-    sns.despine(bottom=True, left=True)
-    # Show each observation with a scatterplot
-    sns.stripplot(
-        data=df, x="position", y="language", hue="animacy",
-        dodge=True, alpha=.25, zorder=1, legend=False,
-    )
-    sns.pointplot(
-        data=df, x="position", y="language", hue="animacy",
-        dodge=.8 - .8 / 3, palette="dark", errorbar=None,
-        markers="d", markersize=4, linestyle="none",
-    )
-    #sns.move_legend(
-    #    ax, loc="lower right", ncol=3, frameon=True, columnspacing=1, handletextpad=0,
-    #)
     plt.title("Relative position within subtrees per animacy class")
     plt.savefig("UD_plots/position_within_subtrees_plot"+str(rel)+"_"+which_clauses+"_clauses_tag_"+tag+"_pro_"+str(pro)+".png")
     
+    plt.show()
+
+def plot_pos_subtree_rank(diff_classes,max_len,tag = "all",pro=False,defin=False,anim_or_gram="anim",iobj=False,obl=False):
+    l_lang = []
+    l_anim = []
+    l_pos = []
+    files = os.listdir("UD_with_anim_annot")
+    for file in files:
+        print(file[:2])
+
+        UD_file = "UD_with_anim_annot/"+file
+        d_pos= rank_in_subtree_main_arg(UD_file,diff_classes,max_len,tag,pro,defin,anim_or_gram,iobj,obl)
+        #print(d_pos)
+        ll_anim = []
+        for k,v in d_pos.items():
+            ll_anim = ll_anim + [k]*len(v)
+            l_pos = l_pos + v
+        l_anim = l_anim + ll_anim
+        l_lang = l_lang + [file[:2]]*len(ll_anim)
+        
+        #print(len(l_anim),len(l_lang),len(l_pos))
+
+    d = {"language":l_lang,"position":l_pos,"animacy":l_anim}
+    df = pd.DataFrame.from_dict(d)
+    df.to_csv('results/rank.csv', index=False)
+
+    # Draw a nested boxplot to show bills by day and time
+    """
+    sns.set_theme(style="ticks", palette="pastel")
+    sns.boxplot(x="language", y="position",
+                hue="animacy", palette=["m","r", "g","b"],
+                data=df)
+    sns.despine(offset=10, trim=True)
+    sns.set_theme(style="whitegrid")
+
+
+    f, ax = plt.subplots()
+    sns.despine(bottom=True, left=True)
+
+    sns.stripplot(
+        data=df, x="language", y="position",
+                hue="animacy",
+        dodge=True, alpha=.25, zorder=1, legend=False,
+    )
+
+    sns.pointplot(
+        data=df, x="language", y="position",
+                hue="animacy",
+        dodge=.8 - .8 / 3, palette="dark", errorbar=None,
+        markers="d", markersize=4, linestyle="none",
+    )
+
+    # Improve the legend
+    sns.move_legend(
+        ax, loc="lower right", ncol=3, frameon=True, columnspacing=1, handletextpad=0,
+    )"""
+
+
+    g = sns.catplot(
+    data=df, kind="bar",
+    x="language", y="position",
+                hue="animacy", palette="dark", alpha=.6, height=6, errorbar=None
+    )
+    g.despine(left=True)
+    g.set_axis_labels("", "rank")
+    g.legend.set_title("")
+
+    plt.title("Relative rank within subtrees per animacy class")
+    if diff_classes:
+        plt.savefig("UD_plots/rank_within_subtrees_diff_classes_"+anim_or_gram+".png")
+    else:
+        plt.savefig("UD_plots/rank_within_subtrees_"+anim_or_gram+".png")
+
+    
+    plt.show()
+
+
+def plot_pos_subtree_anim_def(rel,which_clauses,size,tag,pro,defin):
+    sns.set_theme(style="ticks", palette="pastel")
+    l_lang = []
+    l_anim_def = []
+    l_pos = []
+    files = os.listdir("UD_with_anim_annot")
+    for file in files:
+        if file[:2] in ["en","it","fr","nl","es","de"]:
+            UD_file = "UD_with_anim_annot/"+file
+            d_pos_anim,d_pos_defin,d_pos_anim_defin = position_in_subtree(UD_file,rel,which_clauses,size,tag,pro,defin)
+            print(d_pos_anim,d_pos_defin,d_pos_anim_defin)
+            print("----------------------------- "+file[:2])
+            tot = len( d_pos_anim["A"])+len(d_pos_defin["Def"])+len(d_pos_anim_defin["Def_A"])
+            l_pos = l_pos + d_pos_anim["A"] + d_pos_defin["Def"] +d_pos_anim_defin["Def_A"]
+            l_anim_def = l_anim_def + ["animate"]*len( d_pos_anim["A"])+["definite"]*len( d_pos_defin["Def"])+["both"]*len(d_pos_anim_defin["Def_A"])
+            l_lang = l_lang + [file[:2]]*tot
+            
+            print(len(l_anim_def),len(l_lang),len(l_pos))
+
+    d = {"language":l_lang,"position":l_pos," ":l_anim_def}
+    df = pd.DataFrame.from_dict(d)
+    print(df)
+    #tips = sns.load_dataset("tips")
+
+    # Draw a nested boxplot to show bills by day and time
+    sns.boxplot(x="language", y="position",
+                hue=" ", palette=["m", "g","b"],
+                data=df)
+    sns.despine(offset=10, trim=True)
     plt.show()
 
 
@@ -1500,9 +1315,10 @@ def print_l_words(l):
         print(elem.voice)  
 
 
-def get_voice(lang,d_word):
+def get_voice(d_word):
     voice = None
-    if lang == "fr":
+    #if lang == "fr":
+    if "VERB" == d_word["upos"]:
         if d_word["feats"] != None:
             if "Pass" in d_word["feats"].values():
                 if any(item in d_word.values() for item in {"root","ccomp","relcl"}):
@@ -1559,25 +1375,6 @@ def plot_rel_pos_all():
                 plot_pos_subtree(rel,which_clauses,-1,"several_anim",pro)
                 plot_pos_subtree(rel,which_clauses,-1,"exactly_two_diff_anim",pro)
 
-#plot_rel_pos_all()
-
-#prop_sentences_only_one_anim("ud-treebanks-v2.14/UD_French-GSD/fr_gsd-ud-dev.conllu")
-
-
-
-#d_anim_subj,d_anim_obj,d_anim_obl, d_anim_all, d_pos, d_pos_avg = compute_stats(json_file_obl)
-
-
-
-
-#d_stats = {"d_anim_subj":d_anim_subj,"d_anim_obj":d_anim_obj,"d_anim_obl":d_anim_obl, "d_anim_all":d_anim_all,"d_pos": d_pos, "d_pos_avg":d_pos_avg}
-
-#with open(json_file_stats_obl, 'w') as json_file:
-#    json.dump(d_stats, json_file)      
-
-#annotate_UD_file_obl(U#D_file,json_file,-1,False,"Naiina/UD_"+lang+"_anim_pred",lang) 
-            
-
 
 def compute_k2():
     UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
@@ -1613,50 +1410,26 @@ def compute_k2():
     khi2, pval , ddl , contingent_theorique = chi2_contingency(np_count_num)
     print("khi2",khi2, "pval",pval , "ddl",ddl , "cont",contingent_theorique)
             
-#plot_proportion_num()
-
-#UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
-UD_file = "UD_with_anim_annot/en_gum-ud-train.conllu"
-#UD_file = "UD_with_anim_annot/zh_gsd-ud-train.conllu"
-#UD_file = "UD_with_anim_annot/es_gsd-ud-train.conllu"
-
-#position_in_subtree(UD_file,True,"all",max_len=25,tag = "all",pro = True)
-#plot_pos_subtree(True,"all",-1,"all",True)
-
-#l_tup = rank_in_subtree(UD_file,"all",max_len=-1,tag = "all",pro = True)
-#t = tuple_to_consider_rank(max_len=-1,pro = True,tag = "exactly_two_diff_anim")    
-#d_permut = rank_in_subtree(UD_file,"all",max_len=100,tag = "several_anim",pro = True)
-  
-#print(d_permut)
-
-#plot_heatmaps_entropy("all",-1,"exactly_two_diff_anim",True)
-#plot_heatmaps_entropy("all",-1,"all",True)
-#plot_heatmaps_entropy("all",-1,"several_anim",True)
-
-#plot_pos_subtree(True,"all",-1,"exactly_two_diff_anim",False)
-#plot_pos_subtree(True,"all",-1,"all",False)
-#plot_pos_subtree(True,"all",-1,"all",True)
-
-#plot_proportion_num()
-#plot_proportion_def()
-
-#print(rank_in_subtree_H("all",max_len=-1,tag = "all",pro = True))
-             
-#pass_subj_act_obj(UD_file,15,True)
-
-#mi = compute_MI(UD_file,-1)
 
 
+UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
 
-#feat = "Nb"
-#mi = compute_MI(UD_file,feat,-1)
-#print(feat,mi)
 
-#feat = "Def"
-#mi = compute_MI(UD_file,feat,-1)
-#print(feat,mi)
+#rank_in_subtree_main_arg(UD_file,False,max_len=-1 ,tag = "all",pro = False,defin = False)
 
-#relative_order_MI(UD_file,-1,True,True)
-number_and_animacy_MI(UD_file,-1)
+#plot_pos_subtree_rank(True,-1,tag = "all",pro=False,defin=False,anim_or_gram="anim")#,iobj=True,obl=True)
 
-#compute_MI(UD_file,"Nb",-1)
+#compute_MI_tests(UD_file,"Nb",-1)
+
+#rank_in_subtree_main_arg(UD_file,True,max_len=3,tag = "all",pro = False,defin = False,anim_or_gram = "gram")
+
+
+#animacy_and_voice(max_len=-1,diff_anim =False,exactly_two=True)
+
+
+#print(definitness_and_animacy(UD_file,-1))
+
+#compute_MI_tests(UD_file,"Nb",-1)
+#plot_pos_subtree_rank(True,-1,tag = "all",pro=False,defin=False,anim_or_gram="anim",iobj=False,obl=False)
+
+compute_k2()
