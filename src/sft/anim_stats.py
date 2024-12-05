@@ -117,7 +117,14 @@ def find_roots(l,pro,deprel,defin = False):
                     defini = None
             
             voice = get_voice(d_word)
-            d_roots[(d_word["form"]+'0',voice)]=([id],[anim],[g],[],[defini])
+            if d_word["upos"] == "VERB":
+                id_v = id
+                verb = d_word["form"]
+            else:
+                id_v=-1
+                verb = None
+            d_roots[(d_word["form"]+'0',voice,id_v,verb)]=([id],[anim],[g],[],[defini])
+            
             #if d_word["upos"] == "VERB":
             #    d_roots_v[d_word["form"]+'0']=([id],[anim],[g])
         else:
@@ -147,8 +154,13 @@ def find_roots(l,pro,deprel,defin = False):
                     else:
                         defini = None
                 voice = get_voice(d_word)
-                
-                d_roots[(d_word["form"],voice)]=([id],[anim],[rel],[],[defini])
+                if d_word["upos"] == "VERB":
+                    verb_id = id
+                    verb = d_word["form"]
+                else:
+                    verb_id = -1
+                    verb = None
+                d_roots[(d_word["form"],voice,verb_id,verb)]=([id],[anim],[rel],[],[defini])
                     #if d_word["upos"] == "VERB":
                     #    d_roots_v[d_word["form"]]=([id],[anim],[rel])
                 ##else:
@@ -169,6 +181,7 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
     l_waiting_head = []
     l_waiting_gram = []
     l_waiting_def = []
+    l_waiting_is_verb = []
     l_det = {"head":[],"def":[]}
     # get roots of each subtree
     d_subtrees,l_tree_roots_idx = find_roots(l,pro,deprel,defin)
@@ -214,8 +227,11 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
                 l_waiting_anim.append(anim)
                 l_waiting_head.append(head)
                 l_waiting_gram.append(gram)
+                l_waiting_is_verb.append((upos == "VERB",get_voice(d_word),d_word["form"]))
                 if defin:
                     l_waiting_def.append(defini)
+        
+
     ii = 0
     max_it = len(l_waiting_idx)
     #print("anim",l_waiting_anim )
@@ -225,6 +241,7 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
         a = l_waiting_anim.pop(0)
         h = l_waiting_head.pop(0)
         g = l_waiting_gram.pop(0)
+        is_v,new_voice,main_verb = l_waiting_is_verb.pop(0)
         if defin:
             d = l_waiting_def.pop(0)
         
@@ -232,9 +249,13 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
         
         # look up if already in a subtree
         #print(d_subtrees)
-        for (verb,voice),sub_tree in d_subtrees.items():
-            
-            #print(str(i)+" look up "+str(h)+" in ",k,v)
+        for (root,voice,id_v,verb),sub_tree in d_subtrees.items():
+            if type(id_v) is int:
+                if id_v<0 and is_v:
+                    d_subtrees[(root,new_voice,i,main_verb)] = d_subtrees.pop((root,voice,id_v,verb))
+                    break
+
+        for (root,voice,id_v,verb),sub_tree in d_subtrees.items():
             if h in sub_tree[0]: 
                 
                 sub_tree[0].append(i)
@@ -243,11 +264,11 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
                 if defin:
                     sub_tree[4].append(d)
 
-                if direct_arg_only:
+                #if direct_arg_only:
                     #print(voice)
                     #if voice == "passif":
-                    if g in l_gram and h == sub_tree[0][0]:
-                        sub_tree[3].append(sub_tree[0].index(i))  
+                #    if g in l_gram and h == id_v:
+                #        sub_tree[3].append(sub_tree[0].index(i))  
 
                     #if voice == "actif":
                     #    if g in l_gram and h == sub_tree[0][0]:
@@ -264,6 +285,7 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
             l_waiting_anim.append(a)
             l_waiting_head.append(h)
             l_waiting_gram.append(g)
+            l_waiting_is_verb.append((is_v,new_voice,main_verb))
             if defin:
                 l_waiting_def.append(d)
         #print(l_waiting_idx)
@@ -271,6 +293,17 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
         
         if ii > max_it+1 :
             break  
+    for d_word in l:
+        idx = d_word["id"]
+        h = d_word["head"]
+        g = d_word["deprel"]#.split(":")[0]
+        for (verb,voice,id_v,verb),sub_tree in d_subtrees.items():
+            #print(sub_tree[0])
+            #print("id_v",id_v)
+            #print("h",h,"id_v",id_v,g)
+            if g in l_gram and h == id_v and idx in sub_tree[0]:
+                sub_tree[3].append(sub_tree[0].index(idx)) 
+
     return d_subtrees
             
 def create_csv(UD_file,max_len):
@@ -293,6 +326,7 @@ def create_csv(UD_file,max_len):
     l_nb_dir_arg = []
     l_sent = []
     l_root = []
+    l_verb = []
 
     for i,elem in enumerate(tqdm(dd_data_UD)):
         if max_len >0:
@@ -302,7 +336,9 @@ def create_csv(UD_file,max_len):
         #print(text)
         l = list(elem)
         d_subtrees = create_subtrees_lists(l,False,True,True)
-        #print(d_subtrees)
+        #print(d_subtrees.keys())
+        #exit()
+        
         for idx_clause, (k,(li,la,lg,l4,ld)) in enumerate(d_subtrees.items()):
             #zipped = list(zip(li,la,lg,ld))
             #z_sorted = sorted(zipped, key = lambda x: x[0])
@@ -324,8 +360,6 @@ def create_csv(UD_file,max_len):
                         l_idx_sentence.append(elem.metadata["sent_id"])
 
                         l_deprel.append(d_word["deprel"])
-                        
-                        
                         l_anim.append(d_word["misc"]["ANIMACY"])
 
                         idx_list = li.index(id_w)
@@ -349,11 +383,12 @@ def create_csv(UD_file,max_len):
                             order = None
                             l_nb_dir_arg.append(0) 
                         l_order.append(order)
-                        print(l_idx_main_arg)
+                        #print(l_idx_main_arg)
                         #l_dir_arg.append(idx_list in l4)
                         l_sent.append(text)
                         l_verb_voice.append(k[1])
                         l_root.append(k[0])
+                        l_verb.append(k[3])
 
     d = {"wordform":l_wordform,
     "idx_clause":l_idx_clause,
@@ -368,12 +403,14 @@ def create_csv(UD_file,max_len):
     "order":l_order,
     "anim_others":l_anim_other,
     "root":l_root,
+    "main verb":l_verb,
     "verb_voice":l_verb_voice,
     "nb_dir_arg":l_nb_dir_arg,
     "sent":l_sent}
     #for k,v in d.items():
     #    print(k,v)
     df = pd.DataFrame.from_dict(d)
+    #print(UD_file)
     df.to_csv('csv/'+UD_file[19:21]+'.csv', index=False)
 
     
