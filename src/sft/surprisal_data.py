@@ -108,6 +108,9 @@ def json_embeddings(json_file,max_lenght_padding = 20):
     proj_anim_labels = linear_layer(t_anim).unsqueeze(1)
 
     #concat
+    print(proj_anim_labels.shape)
+    print(emb_text.shape)
+    exit()
     t_cat_emb = torch.cat((proj_anim_labels, emb_text), 1)
     l_cat_emb = torch.Tensor.tolist(t_cat_emb.detach())
     
@@ -120,4 +123,5 @@ def json_embeddings(json_file,max_lenght_padding = 20):
     return d
 
 
-
+json_file = "json/surprisal_text_fr.json"
+json_embeddings(json_file)
