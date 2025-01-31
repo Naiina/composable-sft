@@ -28,6 +28,8 @@ import torch
 import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import chi2_contingency as chi2_contingency
+
+plt.rcParams['font.family'] = 'Times New Roman'
 #import torch.nn.functional as F
 
 parser = argparse.ArgumentParser()
@@ -215,11 +217,21 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
             else:
                 defini = None
         if upos != "PUNCT":
-            if "NOUN" == upos:
-                anim = d_word["misc"]["ANIMACY"]
-           
-            elif pro and "PRON" == upos and type(d_word["feats"]) == dict and "Person" in d_word["feats"] and d_word["feats"]["Person"] in ["1","2"]:
-                anim = "P"
+            #if  upos == "NOUN" :
+            #    anim = d_word["misc"]["ANIMACY"]
+            #if upos == "PROPN":
+            #    if d_word["misc"]["NER"] =="PER":
+            #        anim = "H"
+            #    else:
+            #        anim = "N"
+                
+            if upos == "PROPN":
+                anim = d_word["misc"]["NER"]
+                if anim == "PERSON":
+                    anim = "PER"
+
+            #elif pro and "PRON" == upos and type(d_word["feats"]) == dict and "Person" in d_word["feats"] and d_word["feats"]["Person"] in ["1","2"]:
+            #    anim = "P"
             else:
                 anim = None
             if idx not in l_tree_roots_idx:
@@ -305,7 +317,29 @@ def create_subtrees_lists(l,pro,deprel = False,direct_arg_only = False, defin = 
                 sub_tree[3].append(sub_tree[0].index(idx)) 
 
     return d_subtrees
-            
+
+
+def find_ner_tags(UD_file,max_len):
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    s_ner = set()
+    dd_data_UD = parse(data_UD.read())
+
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+        if max_len >0:
+            if i >max_len:
+                break
+        text = elem.metadata['text']
+        #print(text)
+        l = list(elem)
+        for d_word in l:
+            if "PROPN" == d_word["upos"]:
+                ner = d_word["misc"]["NER"]
+                s_ner.add(ner)
+    print(s_ner)
+
+
+
+
 def create_csv(UD_file,max_len):
     
     data_UD = open(UD_file,"r", encoding="utf-8")
@@ -831,6 +865,105 @@ def filter_diff_anim(l,tag):
         return only_two_enties_diff_anim
     if tag == "several_anim":
         return sev_anim
+
+
+def noun_only_position_in_subtree(UD_file,rel,max_len=-1,pro = True):
+    # The cat of my sister plays with a ball
+    #      1           2                  3 
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    dd_data_UD = parse(data_UD.read())
+
+    d_pos_anim = {"P":[],"H":[],"A":[],"N":[]}
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+        if max_len >0:
+            if i > max_len:
+                break
+        
+        text = elem.metadata['text']
+        #print(text)
+        l = list(elem)
+
+        d_subtrees = create_subtrees_lists(l,pro,False)
+        #print(d_subtrees)
+        
+        
+        for k,(li,la,lg,l4,ld) in d_subtrees.items():
+            subtree_len = len(li)
+            zipped = list(zip(li,la))
+            z_sorted = sorted(zipped, key = lambda x: x[0])
+            #print(z_sorted)
+            #pass
+            order = 0
+            dd_pos_anim = {"P":[],"H":[],"A":[],"N":[]}
+            for ind, (idx,anim) in enumerate(z_sorted):
+                #if anim != None and :
+                if anim in ["N","A","H","P"]:
+                        
+                    dd_pos_anim[anim].append(order)
+                    order+=1
+            if rel:
+                if order > 0:
+                    for k in dd_pos_anim.keys():
+                        dd_pos_anim[k] = [elem/order for elem in dd_pos_anim[k]]
+            for k in d_pos_anim.keys():
+                d_pos_anim[k] = d_pos_anim[k] + dd_pos_anim[k]
+    for k in d_pos_anim.keys():
+        if len(d_pos_anim[k])>0:
+            d_pos_anim[k] = sum(d_pos_anim[k])/len(d_pos_anim[k])
+        else:
+            d_pos_anim[k] = None
+
+    return (d_pos_anim)
+
+
+def noun_only_position_in_subtree_ner(UD_file,rel,max_len=-1,pro = True):
+    # The cat of my sister plays with a ball
+    #      1           2                  3 
+    data_UD = open(UD_file,"r", encoding="utf-8")
+    dd_data_UD = parse(data_UD.read())
+
+    d_pos_anim = {"PER":[],"ORG":[],"LOC":[],"MISC":[],"O":[]}
+    for i,elem in enumerate(tqdm(dd_data_UD)):
+        if max_len >0:
+            if i > max_len:
+                break
+        
+        text = elem.metadata['text']
+        #print(text)
+        l = list(elem)
+
+        d_subtrees = create_subtrees_lists(l,pro,False)
+        #print(d_subtrees)
+        
+        
+        for k,(li,la,lg,l4,ld) in d_subtrees.items():
+            subtree_len = len(li)
+            zipped = list(zip(li,la))
+            z_sorted = sorted(zipped, key = lambda x: x[0])
+            #print(z_sorted)
+            #pass
+            order = 0
+            dd_pos_anim = {"PER":[],"ORG":[],"LOC":[],"MISC":[],"O":[]}
+            for ind, (idx,anim) in enumerate(z_sorted):
+                #if anim != None and :
+                if anim in ["PER","O","MISC","LOC","ORG"]:
+                        
+                    dd_pos_anim[anim].append(order)
+                    order+=1
+            if rel:
+                if order > 0:
+                    for k in dd_pos_anim.keys():
+                        dd_pos_anim[k] = [elem/order for elem in dd_pos_anim[k]]
+            for k in d_pos_anim.keys():
+                d_pos_anim[k] = d_pos_anim[k] + dd_pos_anim[k]
+    for k in d_pos_anim.keys():
+        if len(d_pos_anim[k])>0:
+            d_pos_anim[k] = sum(d_pos_anim[k])/len(d_pos_anim[k])
+        else:
+            d_pos_anim[k] = None
+
+    return (d_pos_anim)
+
 
 
 def position_in_subtree(UD_file,rel,which_clauses,max_len=-1,tag = "all",pro = True, defin = True):
@@ -1637,8 +1770,6 @@ def find_det(idx_subj,l_det):
 
 #annotate_UD_file_passif(UD_file,json_file,-1,False,"Naiina/UD_"+lang+"_anim_pred",lang)
 
-
-
 def prop(d):
 
     a = d["A"]+d["H"]+d["N"]
@@ -1749,9 +1880,41 @@ def khi2_position():
     print("N P",khi2,pval)
 
 
+def line_plot_pos(UD_folder,rel):
+    d_all = {}
+    for file in os.listdir(UD_folder):
+        lang = file[:2]
+        print(lang)
+        UD_file_ner = UD_folder+file
+        d = noun_only_position_in_subtree(UD_file_ner,rel,-1)
+        print(d)
+        d_all[lang] = d
+    #d = {
+    #"en": {"A": None, "B": 2, "C": 0.8}, 
+    #"fr": {"A": 0.1, "B": 2, "C": 0.7}, 
+    #"de": {"A": 1, "B": 2.2, "C": 0.6}
+    #}
+        
+    df = pd.DataFrame(d_all)
+    print(df)
+
+
+    # Transpose to have languages as the index
+    #df = df.T
+
+    # Plotting the line plot
+    df.plot(marker='o', figsize=(8, 5))
+   
+    #plt.title("Values of A, B, and C for Each Language")
+    plt.xlabel("Language")
+    plt.ylabel("Average positions")
+    plt.legend(title="Metrics")
+    plt.grid(True)
+    plt.show()
 
 
 UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
+UD_file_ner = "UD_with_anim_ner_annot/fr_gsd-ud-train.conllu"
 #UD_file = "UD_with_anim_annot/nl_alpino-ud-train.conllu"
 
 
@@ -1766,7 +1929,18 @@ UD_file = "UD_with_anim_annot/fr_gsd-ud-train.conllu"
 
 #plot_pos_subtree_mean(True,"all",anim_or_def="defin")
 
-files = os.listdir("UD_with_anim_annot")
-for file in files:
-    UD_file = "UD_with_anim_annot/"+file
-    create_csv(UD_file,-1)
+#files = os.listdir("UD_with_anim_annot")
+#for file in files:
+#    UD_file = "UD_with_anim_annot/"+file
+#    create_csv(UD_file,-1)
+
+
+
+rel = False
+#d = noun_only_position_in_subtree(UD_file_ner,rel,max_len=-1)
+#print(d)
+line_plot_pos("UD_with_anim_ner_annot/",rel)
+
+
+
+#find_ner_tags(UD_file_ner,-1)
